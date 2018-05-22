@@ -1,5 +1,6 @@
 //import Storage from '../../../Storage'
 import { SignalProtocolAddress } from '../vendor/Signal'
+import SignalStore, {IdentityKeyPair, IdentityKey, Identifier, RegistrationId, PreKeyPair, KeyId, Session} from '../vendor/SignalStore.interface'
 import { SignalBundleObject } from './ObjectTypes'
 import Bundle from './Bundle'
 import ArrayBufferUtils from '../util/ArrayBuffer'
@@ -11,9 +12,7 @@ const PREFIX_IDENTITYKEY = 'identityKey:';
 const PREFIX_PREKEY = '25519KeypreKey:';
 const PREFIX_SIGNEDPREKEY = '25519KeysignedKey:';
 
-//@TODO create SignalStore interface in order to know which functions are required by Signal
-
-export default class Store {
+export default class Store implements SignalStore {
    public Direction = {
       SENDING: 1,
       RECEIVING: 2
@@ -47,23 +46,26 @@ export default class Store {
       return this.get('published') === 'true' || this.get('published') === true;
    }
 
-   public getIdentityKeyPair() {
-      return Promise.resolve(this.get('identityKey'));
-   }
-
-   public getLocalRegistrationId() {
-      return Promise.resolve(this.get('registrationId'));
-   }
-
-   public getDeviceId() {
+   public getDeviceId(): number {
       return parseInt(this.get('deviceId'));
    }
 
-   public put(key, value) {
-      if (key === undefined || value === undefined || key === null || value === null)
-         throw new Error('Tried to store undefined/null');
+   /**
+    * Methods required by libsignal
+    */
+   public getIdentityKeyPair(): Promise<IdentityKeyPair> {
+      return Promise.resolve(this.get('identityKey'));
+   }
 
-      //@REVIEW serialization is done in storage.setItem
+   public getLocalRegistrationId(): Promise<RegistrationId> {
+      return Promise.resolve(this.get('registrationId'));
+   }
+
+   public put(key: string, value: any): void {
+      if (typeof key === 'undefined' || typeof value === 'undefined' || key === null || value === null) {
+         throw new Error('I will not store undefined or null');
+      }
+
       let stringified = JSON.stringify(value, function(key, value) {
          if (value instanceof ArrayBuffer) {
             return ArrayBufferUtils.toArray(value)
@@ -75,9 +77,10 @@ export default class Store {
       this.storage.setItem(PREFIX, key, { v: stringified });
    }
 
-   public get(key, defaultValue?) {
-      if (key === null || key === undefined)
-         throw new Error('Tried to get value for undefined/null key');
+   public get(key: string, defaultValue?: any): any {
+      if (typeof key === 'undefined' || key === null) {
+         throw new Error('I cant get a value for a undefined or null key');
+      }
 
       let data = this.storage.getItem(PREFIX, key);
 
@@ -94,16 +97,17 @@ export default class Store {
       return defaultValue;
    }
 
-   public remove(key) {
-      if (key === null || key === undefined)
-         throw new Error('Tried to remove value for undefined/null key');
+   public remove(key: string): void {
+      if (typeof key === 'undefined' || key === null) {
+         throw new Error('I cant remove null or undefined key');
+      }
 
       this.storage.removeItem(PREFIX, key);
    }
 
-   public isTrustedIdentity(identifier, identityKey) {
-      if (identifier === null || identifier === undefined) {
-         throw new Error('tried to check identity key for undefined/null key');
+   public isTrustedIdentity(identifier: Identifier, identityKey: IdentityKey): Promise<boolean> {
+      if (typeof identifier === 'undefined' || identifier === null) {
+         throw new Error('Undefined or null is no valid identifier');
       }
 
       if (!(identityKey instanceof ArrayBuffer)) {
@@ -118,14 +122,14 @@ export default class Store {
       return Promise.resolve(ArrayBufferUtils.isEqual(identityKey, trusted));
    }
 
-   public loadIdentityKey(identifier) {
+   public loadIdentityKey(identifier: Identifier): Promise<IdentityKey> {
       if (identifier === null || identifier === undefined)
          throw new Error('Tried to get identity key for undefined/null key');
 
       return Promise.resolve(this.get(PREFIX_IDENTITYKEY + identifier));
    }
 
-   public saveIdentity(identifier, identityKey) {
+   public saveIdentity(identifier: Identifier, identityKey: IdentityKey): Promise<boolean> {
       if (identifier === null || identifier === undefined)
          throw new Error('Tried to put identity key for undefined/null key');
 
@@ -137,7 +141,7 @@ export default class Store {
       return Promise.resolve(existing && ArrayBufferUtils.isEqual(identityKey, existing));
    }
 
-   public loadPreKey(keyId: number) {
+   public loadPreKey(keyId: KeyId): Promise<undefined|PreKeyPair> {
       let res = this.get(PREFIX_PREKEY + keyId);
       if (res !== undefined) {
          res = { pubKey: res.pubKey, privKey: res.privKey };
@@ -146,17 +150,17 @@ export default class Store {
       return Promise.resolve(res);
    }
 
-   public storePreKey(keyId: number, keyPair) {
+   public storePreKey(keyId: KeyId, keyPair: PreKeyPair): Promise<void> {
       return Promise.resolve(this.put(PREFIX_PREKEY + keyId, keyPair));
    }
 
-   public removePreKey(keyId: number) {
+   public removePreKey(keyId: KeyId): Promise<void> {
       //@TODO publish new bundle
 
       return Promise.resolve(this.remove(PREFIX_PREKEY + keyId));
    }
 
-   public loadSignedPreKey(keyId: number) {
+   public loadSignedPreKey(keyId: KeyId): Promise<undefined|PreKeyPair> {
       let res = this.get(PREFIX_SIGNEDPREKEY + keyId);
       if (res !== undefined) {
          res = { pubKey: res.pubKey, privKey: res.privKey };
@@ -165,31 +169,27 @@ export default class Store {
       return Promise.resolve(res);
    }
 
-   public storeSignedPreKey(keyId: number, keyPair) {
+   public storeSignedPreKey(keyId: KeyId, keyPair: PreKeyPair): Promise<void> {
       return Promise.resolve(this.put(PREFIX_SIGNEDPREKEY + keyId, keyPair));
    }
 
-   public removeSignedPreKey(keyId: number) {
+   public removeSignedPreKey(keyId: KeyId): Promise<void> {
       return Promise.resolve(this.remove(PREFIX_SIGNEDPREKEY + keyId));
    }
 
-   public loadSession(identifier) {
+   public loadSession(identifier: Identifier): Promise<Session|undefined> {
       return Promise.resolve(this.get(PREFIX_SESSION + identifier));
    }
 
-   public storeSession(identifier, record) {
-      return Promise.resolve(this.put(PREFIX_SESSION + identifier, record));
+   public storeSession(identifier: Identifier, session: Session): Promise<void> {
+      return Promise.resolve(this.put(PREFIX_SESSION + identifier, session));
    }
 
-   public removeSession(identifier) {
+   public removeSession(identifier: Identifier): Promise<void> {
       return Promise.resolve(this.remove(PREFIX_SESSION + identifier));
    }
 
-   public hasSession(identifier): boolean {
-      return !!this.get(PREFIX_SESSION + identifier)
-   }
-
-   public removeAllSessions(identifier) {
+   public removeAllSessions(identifier: Identifier) {
       //@TODO implement removeAllSessions
       // for (var id in this.store) {
       //    if (id.startsWith(this.prefix + ':' + 'session' + identifier)) {
@@ -197,6 +197,13 @@ export default class Store {
       //    }
       // }
       return Promise.resolve();
+   }
+
+   /**
+    * Helper functions
+    */
+   public hasSession(identifier: Identifier): boolean {
+      return !!this.get(PREFIX_SESSION + identifier)
    }
 
    public async getPreKeyBundle(address): Promise<SignalBundleObject> {
