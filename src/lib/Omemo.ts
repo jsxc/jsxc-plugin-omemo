@@ -7,8 +7,9 @@ import Bootstrap from './Bootstrap'
 import JID from 'jsxc/src/JID' //@TODO
 import {IJID} from 'jsxc/src/JID.interface'
 import Stanza from '../util/Stanza'
-import { NS_BASE, AES_TAG_LENGTH } from '../util/Const'
+import { NS_BASE } from '../util/Const'
 import ArrayBufferUtils from '../util/ArrayBuffer'
+import * as AES from '../util/AES'
 
 export default class Omemo {
    private store: Store;
@@ -24,6 +25,13 @@ export default class Omemo {
    }
 
    public storeOwnDeviceList(deviceList: number[]) {
+      let ownDeviceId = this.store.getDeviceId();
+
+      if (this.store.isPublished() && typeof ownDeviceId === 'number'
+         && ownDeviceId !== NaN && deviceList.indexOf(ownDeviceId) < 0) {
+         this.getBootstrap().addDeviceIdToDeviceList();
+      }
+
       this.store.setOwnDeviceList(deviceList);
    }
 
@@ -32,11 +40,7 @@ export default class Omemo {
    }
 
    public prepare(): Promise<void> {
-      if (!this.bootstrap) {
-         this.bootstrap = new Bootstrap(this.store, this.connection);
-      }
-
-      return this.bootstrap.prepare();
+      return this.getBootstrap().prepare();
    }
 
    public encrypt(contact: Contact, message: Message, xmlElement: Strophe.Builder) {
@@ -57,7 +61,9 @@ export default class Omemo {
 
          return [message, xmlElement];
       }).catch((msg) => {
-         console.warn(msg); //@TODO show warning
+         //@TODO abort and don't send message. This should be handled inside the pipe.
+         message.setErrorMessage(msg);
+         message.setEncrypted(false);
 
          return [message, xmlElement];
       });
@@ -92,7 +98,9 @@ export default class Omemo {
          return Promise.reject(`Found ${ownPreKeyFiltered.length} PreKeys which match my device id (${ownDeviceId}).`);
       }
 
-      let ownPreKey = ownPreKeyFiltered[0]; //@TODO rename var
+      //@TODO remove own prekey id from bundle???
+
+      let ownPreKey = ownPreKeyFiltered[0];
       let peer = this.getPeer(from);
       let exportedKey;
 
@@ -105,29 +113,14 @@ export default class Omemo {
       let exportedAESKey = exportedKey.slice(0, 16);
       let authenticationTag = exportedKey.slice(16);
 
-      if (authenticationTag.byteLength !== 16) {
-         //@TODO authentication tag is also allowed to be larger
+      if (authenticationTag.byteLength < 16) {
          throw "Authentication tag too short";
       }
 
       let iv = (<any>encryptedData).iv;
       let ciphertextAndAuthenticationTag = ArrayBufferUtils.concat((<any>encryptedData).payload, authenticationTag);
 
-      return this.decryptWithAES(exportedAESKey, iv, ciphertextAndAuthenticationTag);
-   }
-
-   private async decryptWithAES(exportedAESKey: ArrayBuffer, iv, data: ArrayBuffer): Promise<string> {
-      let key = await window.crypto.subtle.importKey('raw', exportedAESKey, {
-         name: 'AES-GCM'
-      }, false, ['decrypt']);
-
-      let decryptedBuffer = await window.crypto.subtle.decrypt({
-         name: 'AES-GCM',
-         iv: iv,
-         tagLength: AES_TAG_LENGTH
-      }, key, data);
-
-      return ArrayBufferUtils.decode(decryptedBuffer);
+      return AES.decrypt(exportedAESKey, iv, ciphertextAndAuthenticationTag);
    }
 
    private getPeer(jid: IJID): Peer {
@@ -136,5 +129,13 @@ export default class Omemo {
       }
 
       return this.peers[jid.bare];
+   }
+
+   private getBootstrap(): Bootstrap {
+      if (!this.bootstrap) {
+         this.bootstrap = new Bootstrap(this.store, this.connection);
+      }
+
+      return this.bootstrap;
    }
 }

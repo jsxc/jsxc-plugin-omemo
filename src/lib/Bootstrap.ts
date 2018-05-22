@@ -2,12 +2,13 @@ import Store from './Store'
 import { KeyHelper } from '../vendor/Signal'
 import Random from 'jsxc/src/util/Random'
 import Log from 'jsxc/src/util/Log'
+import { IConnection } from 'jsxc/src/connection/Connection.interface'
 import Bundle from './Bundle'
 import { NS_BASE, NS_DEVICELIST, NS_BUNDLES, NUM_PRE_KEYS } from '../util/Const'
 import { SignedPreKeyObject, KeyPairObject, PreKeyObject } from './ObjectTypes'
 
 export default class Bootstrap {
-   constructor(private store: Store, private connection) {
+   constructor(private store: Store, private connection: IConnection) {
 
    }
 
@@ -20,15 +21,31 @@ export default class Bootstrap {
          let bundle = await this.generateBundle();
          let node = NS_BUNDLES + this.store.getDeviceId();
 
-         // @TODO catch error
          await this.connection.getPEPService().publish(node, bundle.toXML().tree());
          this.store.put('published', true);
 
-         // @TODO catch error
          await this.addDeviceIdToDeviceList();
       }
 
       Log.debug('OMEMO prepared');
+   }
+
+   public addDeviceIdToDeviceList(): Promise<Element> {
+      let jid = this.connection.getJID();
+      let deviceIds = this.store.getOwnDeviceList();
+      let ownDeviceId = this.store.getDeviceId();
+
+      if (deviceIds.indexOf(ownDeviceId) < 0) {
+         deviceIds.push(ownDeviceId);
+      }
+
+      let xmlList = $build('list', { xmlns: NS_BASE });
+
+      for (let id of deviceIds) {
+         xmlList.c('device', { id: id }).up();
+      }
+
+      return this.connection.getPEPService().publish(NS_DEVICELIST, xmlList.tree());
    }
 
    private setup() {
@@ -56,7 +73,7 @@ export default class Bootstrap {
          preKeyPromises.push(this.generatePreKey(i));
       }
 
-      preKeyPromises.push(this.generateSignedPreKey(1));
+      preKeyPromises.push(this.generateSignedPreKey(1)); //@REVIEW signed prekey id
 
       let preKeys = await Promise.all(preKeyPromises);
       let identityKey = await this.store.getIdentityKeyPair();
@@ -83,23 +100,5 @@ export default class Bootstrap {
       this.store.storeSignedPreKey(id, signedPreKey.keyPair);
 
       return signedPreKey;
-   }
-
-   private addDeviceIdToDeviceList() {
-      let jid = this.connection.getJID();
-      let deviceIds = this.store.getOwnDeviceList();
-      let ownDeviceId = this.store.getDeviceId();
-
-      if (deviceIds.indexOf(ownDeviceId) < 0) { //@REVIEW string vs number
-         deviceIds.push(ownDeviceId);
-      }
-
-      let xmlList = $build('list', { xmlns: NS_BASE });
-
-      for (let id of deviceIds) {
-         xmlList.c('device', { id: id }).up();
-      }
-
-      return this.connection.getPEPService().publish(NS_DEVICELIST, xmlList.tree());
    }
 }

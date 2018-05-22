@@ -3,7 +3,7 @@ import Device from './Device'
 import { IJID } from 'jsxc/src/JID.interface'
 import { KeyHelper, SignalProtocolAddress, SessionBuilder, SessionCipher } from '../vendor/Signal'
 import ArrayBufferUtils from '../util/ArrayBuffer'
-import { AES_EXTRACTABLE, AES_KEY_LENGTH, AES_TAG_LENGTH } from '../util/Const'
+import * as AES from '../util/AES'
 
 export default class Peer {
    private static ownJid: IJID;
@@ -18,10 +18,10 @@ export default class Peer {
    public async encrypt(plaintext: string) {
       let remoteDeviceIds = this.store.getDeviceList(this.jid.bare);
       let ownDeviceIds = this.store.getOwnDeviceList().filter((id) => {
-         return id !== this.store.getDeviceId();
+         return id !== this.store.getDeviceId(); //@REVIEW MAM
       });
 
-      let aes = await this.encryptWithAES(plaintext);
+      let aes = await AES.encrypt(plaintext);
       let promises = [];
 
       for (let id of remoteDeviceIds) {
@@ -73,55 +73,7 @@ export default class Peer {
       return Peer.ownDevices[id];
    }
 
-   public static setOwnJid(jid: IJID) { //@REVIEW
+   public static setOwnJid(jid: IJID) {
       Peer.ownJid = jid;
-   }
-
-   private async encryptWithAES(plaintext) {
-      let iv = window.crypto.getRandomValues(new Uint8Array(12));
-      let key = await this.generateAESKey();
-      let encrypted = await this.generateAESencryptedMessage(iv, key, plaintext);
-
-      let ciphertext = encrypted.ciphertext;
-      let authenticationTag = encrypted.authenticationTag;
-
-      let keydata = await window.crypto.subtle.exportKey('raw', <CryptoKey>key)
-
-      return {
-         keydata: ArrayBufferUtils.concat(keydata, <ArrayBuffer>authenticationTag),
-         iv: iv,
-         payload: ciphertext
-      }
-   }
-
-   private async generateAESKey(): Promise<CryptoKey> {
-      let algo = {
-         name: 'AES-GCM',
-         length: AES_KEY_LENGTH,
-      };
-      let keyUsage = ['encrypt', 'decrypt'];
-
-      let key = await window.crypto.subtle.generateKey(algo, AES_EXTRACTABLE, keyUsage);
-
-      return key;
-   }
-
-   private async generateAESencryptedMessage(iv, key, plaintext): Promise<{ ciphertext: ArrayBuffer, authenticationTag: ArrayBuffer }> {
-      let encryptOptions = {
-         name: 'AES-GCM',
-         iv: iv,
-         tagLength: AES_TAG_LENGTH
-      };
-      let encodedPlaintext = ArrayBufferUtils.encode(plaintext);
-
-      let encrypted = await window.crypto.subtle.encrypt(encryptOptions, key, encodedPlaintext);
-      let ciphertextLength = encrypted.byteLength - ((128 + 7) >> 3);
-      let ciphertext = encrypted.slice(0, ciphertextLength)
-      let authenticationTag = encrypted.slice(ciphertextLength);
-
-      return {
-         ciphertext: ciphertext,
-         authenticationTag: authenticationTag
-      };
    }
 }

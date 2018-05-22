@@ -6,7 +6,7 @@ interface ISignalProtocolAddress {
    equals: (ISignalProtocolAddress) => boolean
 }
 
-let libsignal = (<any>window).libsignal;
+let libsignal = (<any>window).libsignal || {};
 
 export let KeyHelper = libsignal.KeyHelper;
 export let SignalProtocolAddress = libsignal.SignalProtocolAddress;
